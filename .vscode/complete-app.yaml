@@ -1,0 +1,196 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dev-namespace
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: dev-limit-range
+  namespace: dev-namespace
+spec:
+  limits:
+    - max:
+        cpu: "1"
+        memory: "1Gi"
+      min:
+        cpu: "100m"
+        memory: "128Mi"
+      default:
+        cpu: "500m"
+        memory: "512Mi"
+      defaultRequest:
+        cpu: "200m"
+        memory: "256Mi"
+      type: Container
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: banking-config
+  namespace: dev-namespace
+data:
+  APP_NAME: "Banking Application"
+  APP_ENV: "production"
+  APP_PORT: "5000"
+  LOG_LEVEL: "info"
+  DB_HOST: "mysql-service.dev-namespace.svc.cluster.local"
+  DB_PORT: "3306"
+  DB_NAME: "banking_db"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: banking-secret
+  namespace: dev-namespace
+type: Opaque
+data:
+  DB_USERNAME: <base64-encoded-username>
+  DB_PASSWORD: <base64-encoded-password>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: banking-deployment
+  namespace: dev-namespace
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: banking
+  template:
+    metadata:
+      labels:
+        app: banking
+    spec:
+      containers:
+        - name: banking-container
+          image: 796796207873.dkr.ecr.ap-south-1.amazonaws.com/banking-5:latest
+          ports:
+            - containerPort: 5000
+          envFrom:
+            - configMapRef:
+                name: banking-config
+            - secretRef:
+                name: banking-secret
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: banking-service
+  namespace: dev-namespace
+spec:
+  type: LoadBalancer
+  selector:
+    app: banking
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
+      nodePort: 30080
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: monitoring-agent
+  namespace: dev-namespace
+spec:
+  selector:
+    matchLabels:
+      app: monitoring
+  template:
+    metadata:
+      labels:
+        app: monitoring
+    spec:
+      nodeSelector:
+        monitor: "true"
+      containers:
+        - name: node-exporter
+          image: prom/node-exporter:latest
+          ports:
+            - containerPort: 9100
+              name: metrics
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: banking-headless
+  namespace: dev-namespace
+spec:
+  clusterIP: None
+  selector:
+    app: banking
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: banking-stateful-headless
+  namespace: dev-namespace
+spec:
+  clusterIP: None
+  selector:
+    app: banking-stateful
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: banking-stateful
+  namespace: dev-namespace
+spec:
+  serviceName: banking-stateful-headless
+  replicas: 3
+  selector:
+    matchLabels:
+      app: banking-stateful
+  template:
+    metadata:
+      labels:
+        app: banking-stateful
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: banking-container
+          image: 796796207873.dkr.ecr.ap-south-1.amazonaws.com/banking-5:latest
+          ports:
+            - containerPort: 5000
+          volumeMounts:
+            - name: banking-data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: banking-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: gp2
+        resources:
+          requests:
+            storage: 5Gi

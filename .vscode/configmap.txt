@@ -1,0 +1,2 @@
+DB_USERNAME=YmFua2luZ3VzZXI=   # bankinguser
+DB_PASSWORD=U2VjdXJlUGFzc0AxMjM=  # SecurePass@123
