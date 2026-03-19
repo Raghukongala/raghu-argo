@@ -4,7 +4,7 @@ metadata:
   name: test-deployment
   namespace: default
 spec:
-  replicas: 5
+  replicas: 3
   selector:
     matchLabels:
       app: test-app
@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: nginx
-          image: nginx:latest
+          image: raghu282/banking-scheduler
           ports:
             - containerPort: 80
 ---
